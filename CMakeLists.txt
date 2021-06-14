@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.4.3)
 project(kaleidoscope)
 
+set(LLVM_DIR /usr/lib/llvm-11/cmake)
+set(CMAKE_CXX_COMPILER clang++-11)
+set(-DCMAKE_C_COMPILER clang-11)
+
 find_package(LLVM 11.1.0 REQUIRED CONFIG)
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in ${LLVM_DIR}")
@@ -8,9 +12,6 @@ message(STATUS "LLVM Root: ${LLVM_TOOLS_BINARY_DIR}")
 message(STATUS "LLVM Include dirs: ${LLVM_INCLUDE_DIRS}")
 
 set(CMAKE_CXX_STANDARD 14)
-
-message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
-message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 
 # Set your project compile flags.
 # E.g. if using the C++ header files

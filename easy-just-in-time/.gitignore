@@ -1,0 +1,12 @@
+*.ll
+*.ninja_deps
+*.ninja_log
+*/CMakeCache.txt
+*/CMakeFiles/
+*/bin/
+*/build.ninja
+*/cmake_install.cmake
+*/rules.ninja
+*/.ninja_log
+*/__pycache__
+*.py[cod]

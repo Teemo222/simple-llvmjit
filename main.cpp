@@ -24,32 +24,42 @@
 #include <memory>
 #include <string>
 
+#define arr_size 100
 
 using namespace llvm;
 using namespace llvm::orc;
 using namespace std::placeholders;
 
+struct small_block {
+  int f1[10];
+};
+
 struct block {
-  bool b0;
-  int b1[3];
+  int * int_ptr;
+  bool flag;
+  int b1[arr_size];
+  struct small_block sb;
 };
 
 extern "C" {
 
-  int add (struct block a, int b) {
+  int add (struct block * a, int b) {
     // int *dynamic_mem = (int *) malloc(sizeof(int));
     // *dynamic_mem = 100;
 
-    int result = 0;
-    for (int i = 0; i < 3; i++){
-      result += a.b1[i];
+    int result = *(a->int_ptr);
+    for (int i = 0; i < arr_size; i++){
+      result += a->b1[i];
     }
 
-    if (a.b0){
-      return -100;
+    for (int i = 0; i < 10; i++){
+      result += a->sb.f1[i];
     }
 
-    return result;
+    if (a->flag)
+      return -1;
+    else
+      return result;
   }
 }
 
@@ -73,14 +83,17 @@ void WriteOptimizedToFile(llvm::Module const &M) {
   Out << M;
 }
 
-std::unique_ptr<Module> buildprog(LLVMContext& ctx)
+std::unique_ptr<Module> buildprog(LLVMContext& ctx, StructType * struct_type)
 {
     std::unique_ptr<Module> llmod = std::make_unique<Module>("test", ctx);
 
     Module* m = llmod.get();
 
+    
+    PointerType * struct_ptr_type = PointerType::get(struct_type, 0);	
+
     Function* add1_fn = Function::Create(
-        FunctionType::get(Type::getInt32Ty(ctx), { Type::getInt32Ty(ctx) }, false),
+        FunctionType::get(Type::getInt32Ty(ctx), { struct_ptr_type }, false),
         Function::ExternalLinkage, "add1", m);
 
     BasicBlock* bb = BasicBlock::Create(ctx, "EntryBlock", add1_fn);
@@ -127,13 +140,16 @@ int main()
     llvm::Module const & M = CompiledFunction->getLLVMModule();
     std::unique_ptr<llvm::Module> Embed = llvm::CloneModule(M);
 
+    std::vector<StructType *> struct_types = Embed->getIdentifiedStructTypes();
+    StructType * block_type = struct_types[0];
+
     InitializeNativeTarget();
     InitializeNativeTargetAsmPrinter();
 
     auto jit = cantFail(TilJIT::Create());
     auto& ctx = jit->getContext();
 
-    auto llmod = buildprog(ctx);
+    auto llmod = buildprog(ctx, block_type);
     //auto llmod = std::move(buildsrc(ctx));
     if (!llmod) return -1;
 
@@ -152,9 +168,6 @@ int main()
 
     // StructType *const llvm_S = StructType::create( ctx, "block" );
     // llvm_S->setBody( members );
-
-    std::vector<StructType *> struct_types = llmod->getIdentifiedStructTypes();
-    StructType * block_type = struct_types[0];
 
     // Call add in add1
     {
@@ -213,16 +226,23 @@ int main()
 
     JITEvaluatedSymbol sym = cantFail(jit->lookup("add1"));
 
-    auto* add1 = (int (*)(struct block))(intptr_t)sym.getAddress();
+    auto* add1 = (int (*)(struct block *))(intptr_t)sym.getAddress();
 
     struct block b;
-    for (int i = 0; i < 3; i++){
+
+    b.flag = false;
+    b.int_ptr = (int *) malloc(sizeof(int));
+    *(b.int_ptr) = 100;
+
+    for (int i = 0; i < arr_size; i++){
       b.b1[i] = i;
     }
 
-    b.b0 = 0;
+    for (int i = 0; i < 10; i++){
+      b.sb.f1[i] = i;
+    }
 
-    std::cout << "Result: " << add1(b) << std::endl;
+    std::cout << "Result: " << add1(&b) << std::endl;
 
     return 0;
 }

@@ -10,6 +10,12 @@
 #include "llvm/Support/SourceMgr.h"
 #include <llvm/Transforms/Utils/Cloning.h>
 #include "llvm/Linker/Linker.h"
+#include "llvm/IR/LegacyPassManager.h"
+#include "llvm/Transforms/InstCombine/InstCombine.h"
+#include "llvm/Transforms/Scalar.h"
+#include "llvm/Transforms/Scalar/GVN.h"
+#include "llvm/IR/DerivedTypes.h"
+
 
 #include "jit.h"
 #include <easy/jit.h>
@@ -18,26 +24,32 @@
 #include <memory>
 #include <string>
 
+
 using namespace llvm;
 using namespace llvm::orc;
 using namespace std::placeholders;
 
 struct block {
-  int b1;
-  int b2;
+  bool b0;
+  int b1[3];
 };
 
 extern "C" {
 
-  int add (int a, int b) {
-    int *dynamic_mem = (int *) malloc(sizeof(int));
-    *dynamic_mem = 100;
+  int add (struct block a, int b) {
+    // int *dynamic_mem = (int *) malloc(sizeof(int));
+    // *dynamic_mem = 100;
 
-    struct block blk;
-    blk.b1 = 2;
-    blk.b2 = 3;
+    int result = 0;
+    for (int i = 0; i < 3; i++){
+      result += a.b1[i];
+    }
 
-    return a + b + *dynamic_mem + blk.b1 + blk.b2;
+    if (a.b0){
+      return -100;
+    }
+
+    return result;
   }
 }
 
@@ -114,7 +126,6 @@ int main()
     std::unique_ptr<easy::Function> CompiledFunction = _jit(add, _1, 1);
     llvm::Module const & M = CompiledFunction->getLLVMModule();
     std::unique_ptr<llvm::Module> Embed = llvm::CloneModule(M);
-    WriteOptimizedToFile(*Embed);
 
     InitializeNativeTarget();
     InitializeNativeTargetAsmPrinter();
@@ -134,6 +145,16 @@ int main()
 
     llvm::Function * add1_func = llmod->getFunction("add1");
 
+    // define struct type 
+    // std::vector<Type*> members;
+    // members.push_back(IntegerType::get(ctx, 32) );
+    // members.push_back(IntegerType::get(ctx, 32) );
+
+    // StructType *const llvm_S = StructType::create( ctx, "block" );
+    // llvm_S->setBody( members );
+
+    std::vector<StructType *> struct_types = llmod->getIdentifiedStructTypes();
+    StructType * block_type = struct_types[0];
 
     // Call add in add1
     {
@@ -142,20 +163,66 @@ int main()
       IRBuilder<> builder(ret);
 
       std::vector<llvm::Value *> llvm_parameters;
-      llvm_parameters.push_back(llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), 100, true));
+      // llvm::Value * block_struct_alloca = builder.CreateAlloca(block_type);
+
+      // llvm::Value * zero_index = llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), 0, false);
+      // llvm::Value * field1_index = llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), 0, false);
+      // llvm::Value * field2_index = llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), 1, false);
+
+      // std::vector<llvm::Value*> indices1 = {zero_index, field1_index};
+      // std::vector<llvm::Value*> indices2 = {zero_index, field2_index};
+
+      // llvm::Value* field1 = builder.CreateGEP(block_struct_alloca, indices1);
+      // llvm::Value* field2 = builder.CreateGEP(block_struct_alloca, indices2);
+    
+      // builder.CreateStore(llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx), 12, true), field1);
+      // builder.CreateStore(llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx), 34, true), field2);
+
+      // llvm_parameters.push_back(builder.CreateLoad(block_struct_alloca));
+
+      llvm_parameters.push_back(add1_func->getArg(0));
 
       llvm::Value * result = builder.CreateCall(add_func, llvm_parameters);
       builder.CreateRet(result);
 
       ret->eraseFromParent();
     }
-   
+
+    // run optimization passes
+    {
+      // Create a new pass manager attached to it.
+      auto TheFPM = std::make_unique<legacy::FunctionPassManager>(llmod.get());
+
+      // Do simple "peephole" optimizations and bit-twiddling optzns.
+      TheFPM->add(createInstructionCombiningPass());
+      // Reassociate expressions.
+      TheFPM->add(createReassociatePass());
+      // Eliminate Common SubExpressions.
+      TheFPM->add(createGVNPass());
+      // Simplify the control flow graph (deleting unreachable blocks, etc).
+      TheFPM->add(createCFGSimplificationPass());
+
+      TheFPM->doInitialization();
+
+      TheFPM->run(*add1_func);
+    }
+    
+    WriteOptimizedToFile(*llmod);
+
     cantFail(jit->addModule(std::move(llmod)));
 
     JITEvaluatedSymbol sym = cantFail(jit->lookup("add1"));
 
-    auto* add1 = (int (*)(int))(intptr_t)sym.getAddress();
-    std::cout << "Result: " << add1(10) << std::endl;
+    auto* add1 = (int (*)(struct block))(intptr_t)sym.getAddress();
+
+    struct block b;
+    for (int i = 0; i < 3; i++){
+      b.b1[i] = i;
+    }
+
+    b.b0 = 0;
+
+    std::cout << "Result: " << add1(b) << std::endl;
 
     return 0;
 }

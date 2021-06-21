@@ -15,7 +15,33 @@
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Scalar/GVN.h"
 #include "llvm/IR/DerivedTypes.h"
-
+#include "llvm/Transforms/IPO/Inliner.h"
+#include <llvm/Bitcode/BitcodeWriter.h>
+#include <llvm/Bitcode/BitcodeReader.h>
+#include <llvm/Transforms/IPO/PassManagerBuilder.h>
+#include <llvm/Transforms/IPO.h>
+#include <llvm/IR/LegacyPassManager.h>
+#include <llvm/Support/Host.h> 
+#include <llvm/Target/TargetMachine.h> 
+#include <llvm/Support/TargetRegistry.h> 
+#include <llvm/Analysis/TargetTransformInfo.h> 
+#include <llvm/Analysis/TargetLibraryInfo.h> 
+#include <llvm/Support/FileSystem.h>
+#include "llvm/ExecutionEngine/ExecutionEngine.h"
+#include "llvm/Transforms/IPO/AlwaysInliner.h"
+#include "llvm/Transforms/Utils/Mem2Reg.h"
+#include "llvm/ADT/Statistic.h"
+#include "llvm/Analysis/AssumptionCache.h"
+#include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/Dominators.h"
+#include "llvm/IR/Function.h"
+#include "llvm/IR/Instructions.h"
+#include "llvm/IR/PassManager.h"
+#include "llvm/InitializePasses.h"
+#include "llvm/Pass.h"
+#include "llvm/Support/Casting.h"
+#include "llvm/Transforms/Utils.h"
+#include "llvm/Transforms/Utils/PromoteMemToReg.h"
 
 #include "jit.h"
 #include <easy/jit.h>
@@ -31,7 +57,7 @@ using namespace llvm::orc;
 using namespace std::placeholders;
 
 struct small_block {
-  int f1[10];
+  int f1[100];
 };
 
 struct block {
@@ -41,25 +67,52 @@ struct block {
   struct small_block sb;
 };
 
+void Optimize(llvm::Module& M, const char* Name, unsigned OptLevel) {
+  llvm::PassManagerBuilder Builder;
+  Builder.OptLevel = OptLevel;
+
+  llvm::legacy::PassManager MPM;
+  MPM.add(createAlwaysInlinerLegacyPass(false));
+  //MPM.add(createSROAPass());
+
+  Builder.populateModulePassManager(MPM);
+
+  MPM.run(M);
+}
+
 extern "C" {
 
   int add (struct block * a, int b) {
     // int *dynamic_mem = (int *) malloc(sizeof(int));
     // *dynamic_mem = 100;
 
+    //   int result = *(a->int_ptr);
+    //   for (int i = 0; i < arr_size; i++){
+    //     result += a->b1[i];
+    //   }
+
+    //   for (int i = 0; i < 10; i++){
+    //     result += a->sb.f1[i];
+    //   }
+
+    //   if (a->flag)
+    //     return -1;
+    //   else
+    //     return result;
+    // }
+
+    struct block c;
+    int count = 0;
     int result = *(a->int_ptr);
-    for (int i = 0; i < arr_size; i++){
-      result += a->b1[i];
+
+    for (int i = 0; i < result; i++){
+      c.b1[i] = i;
+      count += c.b1[i];
+      c.sb.f1[i] = i;
+      count += c.sb.f1[i];
     }
 
-    for (int i = 0; i < 10; i++){
-      result += a->sb.f1[i];
-    }
-
-    if (a->flag)
-      return -1;
-    else
-      return result;
+    return count;
   }
 }
 
@@ -89,8 +142,7 @@ std::unique_ptr<Module> buildprog(LLVMContext& ctx, StructType * struct_type)
 
     Module* m = llmod.get();
 
-    
-    PointerType * struct_ptr_type = PointerType::get(struct_type, 0);	
+    PointerType * struct_ptr_type = PointerType::get(struct_type, 0); 
 
     Function* add1_fn = Function::Create(
         FunctionType::get(Type::getInt32Ty(ctx), { struct_ptr_type }, false),
@@ -139,7 +191,23 @@ int main()
     std::unique_ptr<easy::Function> CompiledFunction = _jit(add, _1, 1);
     llvm::Module const & M = CompiledFunction->getLLVMModule();
     std::unique_ptr<llvm::Module> Embed = llvm::CloneModule(M);
+    for (Function & func: *Embed){
+      func.addFnAttr(Attribute::AlwaysInline);
+      func.removeFnAttr(Attribute::OptimizeNone);
+    }
+    // {
+    //   // Create a new pass manager attached to it.
+    //   auto TheFPM = std::make_unique<legacy::FunctionPassManager>(Embed.get());
 
+    //   TheFPM->add(createPromoteMemoryToRegisterPass());
+
+    //   TheFPM->doInitialization();
+
+    //   for (Function & func: *Embed){
+    //     TheFPM->run(func);
+    //   }
+    // }
+    
     std::vector<StructType *> struct_types = Embed->getIdentifiedStructTypes();
     StructType * block_type = struct_types[0];
 
@@ -158,6 +226,7 @@ int main()
 
     llvm::Function * add_func = llmod->getFunction("add");
     assert(add_func);
+    //add_func->addFnAttr(Attribute::AlwaysInline);
 
     llvm::Function * add1_func = llmod->getFunction("add1");
 
@@ -172,7 +241,7 @@ int main()
     // Call add in add1
     {
       BasicBlock * entry_block = &(add1_func->getEntryBlock());
-      Instruction * ret =	entry_block->getTerminator();
+      Instruction * ret = entry_block->getTerminator();
       IRBuilder<> builder(ret);
 
       std::vector<llvm::Value *> llvm_parameters;
@@ -200,25 +269,8 @@ int main()
 
       ret->eraseFromParent();
     }
-
-    // run optimization passes
-    {
-      // Create a new pass manager attached to it.
-      auto TheFPM = std::make_unique<legacy::FunctionPassManager>(llmod.get());
-
-      // Do simple "peephole" optimizations and bit-twiddling optzns.
-      TheFPM->add(createInstructionCombiningPass());
-      // Reassociate expressions.
-      TheFPM->add(createReassociatePass());
-      // Eliminate Common SubExpressions.
-      TheFPM->add(createGVNPass());
-      // Simplify the control flow graph (deleting unreachable blocks, etc).
-      TheFPM->add(createCFGSimplificationPass());
-
-      TheFPM->doInitialization();
-
-      TheFPM->run(*add1_func);
-    }
+ 
+    Optimize(*llmod, "test", 3);
     
     WriteOptimizedToFile(*llmod);
 

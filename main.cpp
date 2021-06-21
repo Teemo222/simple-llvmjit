@@ -83,6 +83,20 @@ void Optimize(llvm::Module& M, const char* Name, unsigned OptLevel) {
 extern "C" {
 
   int add (struct block * a, int b) {
+
+    struct block c;
+    int count = 0;
+    int result = *(a->int_ptr);
+
+    for (int i = 0; i < result; i++){
+      c.b1[i] = i;
+      count += c.b1[i];
+      c.sb.f1[i] = i;
+      count += c.sb.f1[i];
+    }
+
+    return count;
+
     // int *dynamic_mem = (int *) malloc(sizeof(int));
     // *dynamic_mem = 100;
 
@@ -100,19 +114,6 @@ extern "C" {
     //   else
     //     return result;
     // }
-
-    struct block c;
-    int count = 0;
-    int result = *(a->int_ptr);
-
-    for (int i = 0; i < result; i++){
-      c.b1[i] = i;
-      count += c.b1[i];
-      c.sb.f1[i] = i;
-      count += c.sb.f1[i];
-    }
-
-    return count;
   }
 }
 
@@ -195,18 +196,6 @@ int main()
       func.addFnAttr(Attribute::AlwaysInline);
       func.removeFnAttr(Attribute::OptimizeNone);
     }
-    // {
-    //   // Create a new pass manager attached to it.
-    //   auto TheFPM = std::make_unique<legacy::FunctionPassManager>(Embed.get());
-
-    //   TheFPM->add(createPromoteMemoryToRegisterPass());
-
-    //   TheFPM->doInitialization();
-
-    //   for (Function & func: *Embed){
-    //     TheFPM->run(func);
-    //   }
-    // }
     
     std::vector<StructType *> struct_types = Embed->getIdentifiedStructTypes();
     StructType * block_type = struct_types[0];

@@ -11,37 +11,7 @@
 #include <llvm/Transforms/Utils/Cloning.h>
 #include "llvm/Linker/Linker.h"
 #include "llvm/IR/LegacyPassManager.h"
-#include "llvm/Transforms/InstCombine/InstCombine.h"
-#include "llvm/Transforms/Scalar.h"
-#include "llvm/Transforms/Scalar/GVN.h"
-#include "llvm/IR/DerivedTypes.h"
-#include "llvm/Transforms/IPO/Inliner.h"
-#include <llvm/Bitcode/BitcodeWriter.h>
-#include <llvm/Bitcode/BitcodeReader.h>
-#include <llvm/Transforms/IPO/PassManagerBuilder.h>
-#include <llvm/Transforms/IPO.h>
-#include <llvm/IR/LegacyPassManager.h>
-#include <llvm/Support/Host.h> 
-#include <llvm/Target/TargetMachine.h> 
-#include <llvm/Support/TargetRegistry.h> 
-#include <llvm/Analysis/TargetTransformInfo.h> 
-#include <llvm/Analysis/TargetLibraryInfo.h> 
-#include <llvm/Support/FileSystem.h>
-#include "llvm/ExecutionEngine/ExecutionEngine.h"
 #include "llvm/Transforms/IPO/AlwaysInliner.h"
-#include "llvm/Transforms/Utils/Mem2Reg.h"
-#include "llvm/ADT/Statistic.h"
-#include "llvm/Analysis/AssumptionCache.h"
-#include "llvm/IR/BasicBlock.h"
-#include "llvm/IR/Dominators.h"
-#include "llvm/IR/Function.h"
-#include "llvm/IR/Instructions.h"
-#include "llvm/IR/PassManager.h"
-#include "llvm/InitializePasses.h"
-#include "llvm/Pass.h"
-#include "llvm/Support/Casting.h"
-#include "llvm/Transforms/Utils.h"
-#include "llvm/Transforms/Utils/PromoteMemToReg.h"
 
 #include "jit.h"
 #include <easy/jit.h>
@@ -215,17 +185,8 @@ int main()
 
     llvm::Function * add_func = llmod->getFunction("add");
     assert(add_func);
-    //add_func->addFnAttr(Attribute::AlwaysInline);
-
+ 
     llvm::Function * add1_func = llmod->getFunction("add1");
-
-    // define struct type 
-    // std::vector<Type*> members;
-    // members.push_back(IntegerType::get(ctx, 32) );
-    // members.push_back(IntegerType::get(ctx, 32) );
-
-    // StructType *const llvm_S = StructType::create( ctx, "block" );
-    // llvm_S->setBody( members );
 
     // Call add in add1
     {
@@ -234,23 +195,7 @@ int main()
       IRBuilder<> builder(ret);
 
       std::vector<llvm::Value *> llvm_parameters;
-      // llvm::Value * block_struct_alloca = builder.CreateAlloca(block_type);
-
-      // llvm::Value * zero_index = llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), 0, false);
-      // llvm::Value * field1_index = llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), 0, false);
-      // llvm::Value * field2_index = llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), 1, false);
-
-      // std::vector<llvm::Value*> indices1 = {zero_index, field1_index};
-      // std::vector<llvm::Value*> indices2 = {zero_index, field2_index};
-
-      // llvm::Value* field1 = builder.CreateGEP(block_struct_alloca, indices1);
-      // llvm::Value* field2 = builder.CreateGEP(block_struct_alloca, indices2);
-    
-      // builder.CreateStore(llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx), 12, true), field1);
-      // builder.CreateStore(llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx), 34, true), field2);
-
-      // llvm_parameters.push_back(builder.CreateLoad(block_struct_alloca));
-
+      
       llvm_parameters.push_back(add1_func->getArg(0));
 
       llvm::Value * result = builder.CreateCall(add_func, llvm_parameters);

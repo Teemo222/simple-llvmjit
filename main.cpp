@@ -10,7 +10,7 @@
 #include "llvm/Support/SourceMgr.h"
 #include <llvm/Transforms/Utils/Cloning.h>
 #include "llvm/Linker/Linker.h"
-#include "llvm/IR/LegacyPassManager.h"
+#include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Transforms/IPO/AlwaysInliner.h"
 
 #include "jit.h"
@@ -40,9 +40,10 @@ struct block {
 void Optimize(llvm::Module& M, const char* Name, unsigned OptLevel) {
   llvm::PassManagerBuilder Builder;
   Builder.OptLevel = OptLevel;
+  Builder.Inliner = createFunctionInliningPass(OptLevel, 0, false);
 
   llvm::legacy::PassManager MPM;
-  MPM.add(createAlwaysInlinerLegacyPass(false));
+  //MPM.add(createAlwaysInlinerLegacyPass(false));
   //MPM.add(createSROAPass());
 
   Builder.populateModulePassManager(MPM);
@@ -85,6 +86,11 @@ extern "C" {
     //     return result;
     // }
   }
+
+  int func(int a, int b){
+    return a;
+  }
+
 }
 
 template<class T, class ... Args>
@@ -166,7 +172,11 @@ int main()
       func.addFnAttr(Attribute::AlwaysInline);
       func.removeFnAttr(Attribute::OptimizeNone);
     }
-    
+
+    std::unique_ptr<easy::Function> CompiledFunction2 = _jit(func, _1, 1);
+    llvm::Module const & M2 = CompiledFunction2->getLLVMModule();
+    std::unique_ptr<llvm::Module> Embed2 = llvm::CloneModule(M2);
+
     std::vector<StructType *> struct_types = Embed->getIdentifiedStructTypes();
     StructType * block_type = struct_types[0];
 
@@ -182,6 +192,7 @@ int main()
 
     // Link the main module with the easy::jit extracted module
     llvm::Linker::linkModules(*llmod, std::move(Embed));
+    llvm::Linker::linkModules(*llmod, std::move(Embed2));
 
     llvm::Function * add_func = llmod->getFunction("add");
     assert(add_func);
@@ -203,9 +214,9 @@ int main()
 
       ret->eraseFromParent();
     }
- 
+
     Optimize(*llmod, "test", 3);
-    
+
     WriteOptimizedToFile(*llmod);
 
     cantFail(jit->addModule(std::move(llmod)));
@@ -232,3 +243,5 @@ int main()
 
     return 0;
 }
+
+

@@ -37,36 +37,21 @@ struct block {
   struct small_block sb;
 };
 
-void Optimize(llvm::Module& M, const char* Name, unsigned OptLevel) {
-  llvm::PassManagerBuilder Builder;
-  Builder.OptLevel = OptLevel;
-  Builder.Inliner = createFunctionInliningPass(OptLevel, 0, false);
-
-  llvm::legacy::PassManager MPM;
-  //MPM.add(createAlwaysInlinerLegacyPass(false));
-  //MPM.add(createSROAPass());
-
-  Builder.populateModulePassManager(MPM);
-
-  MPM.run(M);
-}
-
 extern "C" {
 
   int add (struct block * a, int b) {
 
-    struct block c;
-    int count = 0;
+    // struct block c;
+    // int count = 0;
     int result = *(a->int_ptr);
+    return result;
 
-    for (int i = 0; i < result; i++){
-      c.b1[i] = i;
-      count += c.b1[i];
-      c.sb.f1[i] = i;
-      count += c.sb.f1[i];
-    }
-
-    return count;
+    // for (int i = 0; i < result; i++){
+    //   c.b1[i] = i;
+    //   count += c.b1[i];
+    //   c.sb.f1[i] = i;
+    //   count += c.sb.f1[i];
+    // }
 
     // int *dynamic_mem = (int *) malloc(sizeof(int));
     // *dynamic_mem = 100;
@@ -214,10 +199,6 @@ int main()
 
       ret->eraseFromParent();
     }
-
-    Optimize(*llmod, "test", 3);
-
-    WriteOptimizedToFile(*llmod);
 
     cantFail(jit->addModule(std::move(llmod)));
 
